@@ -29,7 +29,7 @@ public class MetalGear extends MetalAbility implements AddonAbility, MultiAbilit
     public static final int SWORD_SLOT = 4; // Slot for the sword action
     public static final int WHIP_NAE_NAE_SLOT = 5; // Slot for the whip nae nae action, can be used for special actions
     public static final int END_SLOT = 6; // Slot for ending the Metal Gear ability, can be used for special actions
-    public static final boolean DEBUG_MODE = true; // Set to 1 to enable dev mode to display debug messages, 0 to disable
+    public static final boolean DEBUG_MODE = false; // Set to 1 to enable dev mode to display debug messages, 0 to disable
 
     @Attribute(Attribute.COOLDOWN)
     private final long abilityCooldown;
