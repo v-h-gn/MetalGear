@@ -283,4 +283,14 @@ public class Hook {
 
     }
 
+    public double getRopeLength() {
+        if (this.target == null) {
+            return 0.0; // No target to calculate length from
+        }
+        double length = this.player.getLocation().clone().distance(this.target.getPosition());
+        if (MetalGear.DEBUG_MODE) {
+            Bukkit.getServer().broadcast(Component.text("Current rope length: " + length));
+        }
+        return length;
+    }
 }

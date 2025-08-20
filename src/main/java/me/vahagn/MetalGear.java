@@ -29,7 +29,7 @@ public class MetalGear extends MetalAbility implements AddonAbility, MultiAbilit
     public static final int SWORD_SLOT = 4; // Slot for the sword action
     public static final int WHIP_NAE_NAE_SLOT = 5; // Slot for the whip nae nae action, can be used for special actions
     public static final int END_SLOT = 6; // Slot for ending the Metal Gear ability, can be used for special actions
-    public static final boolean DEBUG_MODE = false; // Set to 1 to enable dev mode to display debug messages, 0 to disable
+    public static final boolean DEBUG_MODE = true; // Set to 1 to enable dev mode to display debug messages, 0 to disable
 
     @Attribute(Attribute.COOLDOWN)
     private final long abilityCooldown;
@@ -96,7 +96,7 @@ public class MetalGear extends MetalAbility implements AddonAbility, MultiAbilit
         handlePhysics();
 
         this.leftHook.progress();
-        // this.rightHook.progress();
+        this.rightHook.progress();
         this.currentTick++;
     }
 
@@ -306,9 +306,12 @@ public class MetalGear extends MetalAbility implements AddonAbility, MultiAbilit
     }
 
     private void handlePhysics() {
+        System.out.println("Current MetalGear State: " + this.state + ", Current Tick: " + this.currentTick);
         Hook.State leftHookState = this.leftHook.getState();
         Hook.State rightHookState = this.rightHook.getState();
-        Vector playerVelocity = this.player.getVelocity().clone();
+        Vector tension = new Vector();
+        Vector currentVelocity = this.player.getVelocity();
+
         switch (leftHookState) {
             case IDLE:
 
@@ -330,18 +333,19 @@ public class MetalGear extends MetalAbility implements AddonAbility, MultiAbilit
                         }
                     } else {
                         Vector leftForce = this.computeTensionForce(leftHook);
-
                         // Apply the computed force to the player
-                        // System.out.println("Applying left hook force: " + leftForce);
-                        playerVelocity.add(leftForce).multiply(new Vector(1, .98, 1));
+                        tension.add(leftForce).multiply(new Vector(1, .98, 1));
                     }
+                }
+            case ATTACHING:
+                // If the left hook is attached, apply tension only if rope is at max range
+                if(leftHook.getRopeLength() >= this.hookRange) {
+                    Vector leftForce = this.computeTensionForce(leftHook);
+                    tension.add(leftForce).multiply(new Vector(1, .98, 1));
                 }
                 break;
             case RELEASING:
                 // On release of the left hook, stop applying tension to the player and target from the left hook
-                break;
-            case ATTACHING:
-                // If the left hook is attached, apply tension only if rope is at max range
                 break;
         }
         switch (rightHookState) {
@@ -366,24 +370,52 @@ public class MetalGear extends MetalAbility implements AddonAbility, MultiAbilit
                     } else {
                         Vector rightForce = this.computeTensionForce(rightHook);
                         // Apply the computed force to the player
-                        // System.out.println("Applying right hook force: " + rightForce);
-                        playerVelocity.add(rightForce).multiply(new Vector(1, .98, 1));
+                        tension.add(rightForce).multiply(new Vector(1, .98, 1));
                     }
+                }
+            case ATTACHING:
+                // If the left hook is attached, apply tension only if rope is at max range
+                if(rightHook.getRopeLength() >= this.hookRange) {
+                    Vector rightForce = this.computeTensionForce(rightHook);
+                    tension.add(rightForce).multiply(new Vector(1, .98, 1));
                 }
                 break;
             case RELEASING:
                 // On release of the left hook, stop applying tension to the player and target from the left hook
                 break;
-            case ATTACHING:
-                // If the left hook is attached, apply tension only if rope is at max range
-                break;
         }
+
+        System.out.println("Left Hook State: " + leftHookState + ", Right Hook State: " + rightHookState);
+        System.out.println("Current Player Velocity: " + currentVelocity);
+        System.out.println("Acceleration due to Tension: " + tension);
 
         if(leftHook.getState() == Hook.State.PULLING || rightHook.getState() == Hook.State.PULLING) {
             Vector playerAcceleration = this.computePlayerForce(this.player);
-            Vector playerAccelerationTangential = this.rejection(playerAcceleration, playerVelocity).normalize().multiply(propelFactor);
-            this.player.setVelocity(playerVelocity.add(playerAccelerationTangential));
+            Vector tangentialAcceleration = this.rejection(playerAcceleration.clone(), tension.clone()).setY(0);
+            System.out.println("Acceleration From Input: " + playerAcceleration);
+            System.out.println("Tangential Acceleration: " + tangentialAcceleration);
+
+            if (tangentialAcceleration.lengthSquared() > 1) {
+                tangentialAcceleration.normalize().multiply(propelFactor);
+            } else {
+                tangentialAcceleration.multiply(propelFactor);
+            }
+
+            System.out.println("Scaled Tangential Acceleration: " + tangentialAcceleration);
+            Location playerLocation = this.player.getLocation().clone();
+            for (double i = 0; i < tangentialAcceleration.length(); i += 0.1) {
+                Location particleLocation = playerLocation.clone().add(tangentialAcceleration.clone().normalize().multiply(i));
+                GeneralMethods.displayColoredParticle("00FF00", particleLocation);
+            }
+            currentVelocity.add(tension);
+            currentVelocity.add(tangentialAcceleration);
+            this.player.setVelocity(currentVelocity);
+        } else if (leftHook.getState() == Hook.State.ATTACHING || rightHook.getState() == Hook.State.ATTACHING) {
+            if(leftHook.getRopeLength() >= this.hookRange || rightHook.getRopeLength() >= this.hookRange) {
+                this.player.setVelocity(currentVelocity.add(tension));
+            }
         }
+        System.out.println("Final Player Velocity: " + this.player.getVelocity());
 
     }
 
@@ -392,29 +424,33 @@ public class MetalGear extends MetalAbility implements AddonAbility, MultiAbilit
         Location playerLocation = player.getLocation().clone();
         for (Direction direction : this.currentAccelDirections) {
             Vector playerDirection = playerLocation.getDirection().clone().setY(0).normalize();
+            Vector addedForce = new Vector();
             switch (direction) {
                 case FORWARD:
-                    force.add(playerDirection.multiply(propelFactor));
+                    addedForce = playerDirection.multiply(propelFactor);
                     break;
                 case BACKWARD:
-                    force.add(playerDirection.multiply(-propelFactor));
+                    addedForce = playerDirection.multiply(-propelFactor);
                     break;
                 case LEFT:
                     Location onLeft = GeneralMethods.getLeftSide(player.getLocation(), 1);
-                    Vector leftDirection = onLeft.toVector().clone().subtract(player.getLocation().clone().toVector());
-                    Vector leftAccel = leftDirection.multiply(propelFactor);
-                    force.add(leftAccel);
+                    Vector leftDirection = onLeft.toVector().clone().subtract(player.getLocation().clone().toVector()).setY(0);
+                    addedForce = leftDirection.multiply(propelFactor);
                     break;
                 case RIGHT:
                     Location onRight = GeneralMethods.getRightSide(player.getLocation(), 1);
-                    Vector rightDirection = onRight.toVector().clone().subtract(player.getLocation().clone().toVector());
-                    Vector rightAccel = rightDirection.multiply(propelFactor);
-                    force.add(rightAccel);
+                    Vector rightDirection = onRight.toVector().clone().subtract(player.getLocation().clone().toVector()).setY(0);
+                    addedForce = rightDirection.multiply(propelFactor);
                     break;
                 case DOWN:
-                    force.add(new Vector(0, -.08, 0));
+                    addedForce = new Vector(0, -.02, 0);
+                    break;
+                case UP:
+                    addedForce = new Vector(0, .02, 0);
                     break;
             }
+            force.add(addedForce);
+
             // spawn particles along line of force vector using general methods
             Location forceLocation = playerLocation.clone().add(force);
             for (double i = 0; i < force.length(); i += 0.1) {
@@ -424,18 +460,16 @@ public class MetalGear extends MetalAbility implements AddonAbility, MultiAbilit
             // System.out.println("Current force added: " + force);
             // System.out.println("Direction: " + direction);
         }
+
         if(force.lengthSquared() > 1) {
             force.normalize().multiply(propelFactor);
-        } else {
-            force.multiply(propelFactor);
         }
-
         return force;
     }
 
     private Vector computeTensionForce(Hook hook) {
         HookTarget target = hook.getTarget();
-        Location hookPosition = target.getPosition();
+        Location hookPosition = target.getPosition().clone();
         Location playerLocation = this.player.getLocation().clone();
         return hookPosition.toVector().subtract(playerLocation.toVector()).normalize().multiply(this.pullFactor);
     }
@@ -497,7 +531,14 @@ public class MetalGear extends MetalAbility implements AddonAbility, MultiAbilit
 
     private Vector rejection(Vector v1, Vector v2) {
         // Rejects vector v1 from vector v2
-        return v1.subtract(v2.clone().multiply(v1.dot(v2) / v2.lengthSquared()));
+        if(v2.lengthSquared() < 0.0001) {
+            return v1.clone(); // If v2 is zero vector, return v1
+        }
+        Vector rejection = v1.clone().subtract(projection(v1, v2));
+        if (rejection.lengthSquared() < 0.0001 || Double.isNaN(rejection.getX()) || Double.isNaN(rejection.getY()) || Double.isNaN(rejection.getZ())) {
+            return new Vector(0, 0, 0); // Return zero vector if rejection
+        }
+        return rejection;
     }
 
     private Vector projection(Vector v1, Vector v2) {
